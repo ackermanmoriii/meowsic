@@ -1,35 +1,44 @@
-# Dockerfile (multi-stage)
+# Dockerfile (place at repo root)
 FROM python:3.11-slim AS build
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-# Install build deps
-RUN apt-get update && apt-get install -y build-essential ffmpeg && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Copy backend and install
+# Install system deps needed by yt-dlp and ffmpeg
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python deps
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --upgrade pip
 RUN pip install -r /app/backend/requirements.txt
 
-# Copy full project
+# Copy project files
 COPY . /app
 
 # Final image
 FROM python:3.11-slim
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8080
 
-# Runtime deps
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
 
-# Copy installed packages from build stage (optional) and app files
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages and app files from build stage
 COPY --from=build /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=build /app /app
 
+# Ensure we run from backend where app.py lives
 WORKDIR /app/backend
+
+# Expose the port used by Gunicorn
 EXPOSE 8080
 
-# Ensure sw.js is served at root by copying it to backend static root if needed
-# (If you serve frontend via Flask static, ensure path is correct)
-
+# Use gunicorn to run the Flask app. Ensure backend/app.py defines `app`.
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120"]
