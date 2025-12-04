@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Streamly — Mobile YouTube Music Streamer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Streamly</div>
+    <form id="searchForm" class="searchForm" autocomplete="off">
+      <input id="searchInput" type="search" placeholder="Search artist, song, or album" aria-label="Search" />
+      <button type="submit" aria-label="Search">🔍</button>
+    </form>
+  </header>
+
+  <main id="main" class="main">
+    <section id="results" class="results">
+      <div class="empty-state">Search for a song or artist to begin</div>
+    </section>
+  </main>
+
+  <aside id="sidebar" class="sidebar" aria-hidden="true">
+    <div class="sidebar-header">
+      <div id="sidebarTitle" class="sidebar-title">Context</div>
+      <button id="closeSidebar" class="icon-btn">✕</button>
+    </div>
+
+    <nav class="sidebar-tabs">
+      <button id="tabSimilar" class="tab active">Similar</button>
+      <button id="tabArtist" class="tab">Artist</button>
+    </nav>
+
+    <div id="sidebarContent" class="sidebar-content">
+      <div id="similarView" class="view">
+        <div class="section-title">Similar to <span id="similarFor"></span></div>
+        <ul id="similarList" class="list"></ul>
+        <div class="collection-btn-wrap">
+          <button id="openCollection" class="primary-btn">Open collection</button>
+        </div>
+      </div>
+
+      <div id="artistView" class="view hidden">
+        <div class="section-title">Artist: <span id="artistName"></span></div>
+        <div class="sort-row">
+          <label for="artistSort">Sort</label>
+          <select id="artistSort">
+            <option value="popularity">Popularity</option>
+            <option value="likes">Likes</option>
+            <option value="newest">Latest release</option>
+            <option value="oldest">Oldest release</option>
+          </select>
+        </div>
+        <ul id="artistList" class="list"></ul>
+      </div>
+    </div>
+  </aside>
+
+  <div id="playerBar" class="player-bar" aria-hidden="true" style="display:none;">
+    <div class="player-left">
+      <img id="playerThumb" class="thumb" src="" alt="" />
+      <div class="meta">
+        <div id="playerTitle" class="title">—</div>
+        <div id="playerArtist" class="artist">—</div>
+      </div>
+    </div>
+
+    <div class="player-controls">
+      <button id="prevBtn" class="control">⏮</button>
+      <button id="playBtn" class="control">▶️</button>
+      <button id="nextBtn" class="control">⏭</button>
+      <button id="repeatBtn" class="control" title="Repeat">🔁</button>
+      <button id="closeBtn" class="control">✕</button>
+    </div>
+
+    <audio id="audio" preload="none" crossorigin="anonymous"></audio>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
