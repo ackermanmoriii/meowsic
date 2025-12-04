@@ -1,7 +1,7 @@
 """
-app.py
+backend/app.py
 
-Minimal Flask backend for the YT Music Streamer prototype.
+Flask backend for the YT Music Streamer prototype.
 
 Routes:
 - /api/search?q=...
@@ -9,6 +9,7 @@ Routes:
 - /api/artist?name=...
 - /api/stream?track=...&src=...
 - /api/clear-cache/<track_id>
+- /sw.js (serves Service Worker from frontend/sw.js)
 - static frontend served from ../frontend
 
 Notes:
@@ -21,7 +22,15 @@ import time
 import logging
 from typing import Optional, Dict
 
-from flask import Flask, request, jsonify, Response, send_from_directory, abort
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    Response,
+    send_from_directory,
+    abort,
+    make_response,
+)
 from flask_cors import CORS
 import requests
 from yt_dlp import YoutubeDL
@@ -30,8 +39,14 @@ from yt_dlp import YoutubeDL
 # Configuration
 # -------------------------
 BASE_DIR = os.path.dirname(__file__)
-FRONTEND_DIR = os.path.join(BASE_DIR, "..", "frontend")
+# Expect repository layout:
+# repo-root/
+#   Dockerfile
+#   frontend/
+#   backend/
+FRONTEND_DIR = os.path.join(os.path.dirname(BASE_DIR), "frontend")
 if not os.path.isdir(FRONTEND_DIR):
+    # fallback: frontend next to this file (development)
     FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
 CHUNK_SIZE = 64 * 1024  # 64KB
@@ -48,6 +63,7 @@ YTDL_OPTS = {
 ydl = YoutubeDL(YTDL_OPTS)
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
+# Allow CORS for API endpoints
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +92,7 @@ def extract_direct_audio_url(video_url: str, track_id: Optional[str] = None) -> 
 
     formats = info.get("formats") or []
     audio_url = None
+    # Prefer audio-only formats if available
     for f in reversed(formats):
         if f.get("acodec") and f.get("url"):
             audio_url = f.get("url")
@@ -109,15 +126,33 @@ def parse_range_header(range_header: Optional[str]) -> Optional[int]:
 # -------------------------
 # Frontend static serving
 # -------------------------
+@app.route("/sw.js")
+def serve_service_worker():
+    """
+    Serve the Service Worker from the frontend folder at the root path /sw.js
+    so the worker scope can cover the whole origin.
+    """
+    sw_path = os.path.join(FRONTEND_DIR, "sw.js")
+    if os.path.isfile(sw_path):
+        return send_from_directory(FRONTEND_DIR, "sw.js")
+    # If not found, return 404
+    abort(404)
+
+
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_frontend(path):
     """
     Serve frontend static files. If path not found, serve index.html.
     """
+    # If the requested path exists in frontend, serve it
     if path and os.path.exists(os.path.join(FRONTEND_DIR, path)):
         return send_from_directory(FRONTEND_DIR, path)
-    return send_from_directory(FRONTEND_DIR, "index.html")
+    # Default to index.html for SPA routing
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return send_from_directory(FRONTEND_DIR, "index.html")
+    return "Frontend not found", 404
 
 
 # -------------------------
@@ -234,14 +269,23 @@ def api_artist():
 # -------------------------
 # API: Stream (proxy with Range support)
 # -------------------------
-@app.route("/api/stream")
+@app.route("/api/stream", methods=["GET", "OPTIONS"])
 def api_stream():
     """
     Proxy/stream audio for a given track.
     Query params:
       - src: the original video URL (preferred)
       - track: optional track id used for caching keys in the Service Worker
+    Supports Range requests forwarded to upstream.
     """
+    # Handle CORS preflight for streaming requests
+    if request.method == "OPTIONS":
+        resp = make_response()
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Headers"] = "Range,Content-Type"
+        resp.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
+        return resp
+
     src = request.args.get("src")
     track = request.args.get("track") or request.args.get("id") or None
     if not src:
@@ -264,14 +308,14 @@ def api_stream():
         logger.exception("Upstream fetch failed: %s", e)
         return jsonify({"error": "upstream fetch failed"}), 502
 
+    # Build response headers
     resp_headers = {
         "Accept-Ranges": "bytes",
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Range,Content-Type",
     }
     content_type = upstream.headers.get("Content-Type")
-    if content_type:
-        resp_headers["Content-Type"] = content_type
+    resp_headers["Content-Type"] = content_type or "audio/mpeg"
     if upstream.headers.get("Content-Range"):
         resp_headers["Content-Range"] = upstream.headers.get("Content-Range")
     if upstream.headers.get("Content-Length"):
@@ -297,6 +341,7 @@ def api_stream():
 def api_clear_cache(track_id):
     """
     Endpoint to coordinate cache clearing across clients or server-side caches.
+    For this prototype it simply removes the direct URL cache entry and returns success.
     """
     if track_id in DIRECT_URL_CACHE:
         try:
@@ -318,4 +363,6 @@ def ping():
 # Run (development)
 # -------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # For local development only. Production should use Gunicorn (Dockerfile uses gunicorn).
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
